@@ -19,6 +19,31 @@ VALID_ACTIVITIES = ['brow-lowerer', 'brow-raiser', 'chewing', 'chin-raiser', 'ey
                     'lip-puller', 'mouth-stretch', 'nod', 'running', 'shake', 'speaking', 
                     'still', 'swallowing', 'tilt', 'walking', 'wink-l', 'wink-r']
 
+# Preprocess function: z-score normalization (mean=0, variance=1)
+def preprocess_imu_data(imu_data):
+    """
+    Standardizes the IMU data (mean=0, std=1) for each axis.
+    Args:
+        imu_data: DataFrame with IMU features like ax, ay, az, gx, gy, gz.
+    Returns:
+        Standardized DataFrame.
+    """
+    imu_columns = ['ax', 'ay', 'az', 'gx', 'gy', 'gz']
+    for col in imu_columns:
+        imu_data[col] = (imu_data[col] - imu_data[col].mean()) / imu_data[col].std()
+    return imu_data
+
+# Centering function to make head image start at center
+def center_imu_data(imu_data):
+    """
+    Centers IMU data by subtracting the initial position (first row).
+    Ensures that the head image starts at the center.
+    """
+    imu_columns = ['ax', 'ay', 'az', 'gx', 'gy', 'gz']
+    for col in imu_columns:
+        imu_data[col] = imu_data[col] - imu_data[col].iloc[0]  # Subtract initial position
+    return imu_data
+
 # Load IMU data function
 def load_imu_data(user_id, activity):
     try:
@@ -35,57 +60,99 @@ def load_imu_data(user_id, activity):
         imu_left = pd.read_csv(left_file)
         imu_right = pd.read_csv(right_file)
         
+        # Preprocess and center the IMU data
+        imu_left = preprocess_imu_data(imu_left)
+        imu_right = preprocess_imu_data(imu_right)
+        imu_left = center_imu_data(imu_left)  # Centering IMU data for starting at 0,0
+        imu_right = center_imu_data(imu_right)
+        
         return imu_left, imu_right
     
     except FileNotFoundError as e:
-        ctk.CTkMessagebox.show_error("File Not Found", str(e))
+        print(e)
         return None, None
     except Exception as e:
-        ctk.CTkMessagebox.show_error("Error", f"An error occurred: {e}")
+        print(f"An error occurred: {e}")
         return None, None
 
-# Animation function embedded in the CustomTkinter window
-def animate_imu(imu_left, activity, canvas, fig, ax):
-    # Load the head image
-    head_img = mpimg.imread('head.png')  # Ensure that 'head.png' is in the same directory
+# Global variable to store animation object
+ani = None
 
-    # Standardize/Normalize the accelerometer data
-    imu_left['ax'] = (imu_left['ax'] - imu_left['ax'].mean()) / imu_left['ax'].std()
-    imu_left['ay'] = (imu_left['ay'] - imu_left['ay'].mean()) / imu_left['ay'].std()
-    imu_left['gz'] = (imu_left['gz'] - imu_left['gz'].mean()) / imu_left['gz'].std()
-    
+# Animation function
+def animate_imu(imu_left, activity, canvas, fig, ax):
+    global ani  # Access the global variable to control the animation
+
+    # Stop the current animation if it's running
+    if ani:
+        ani.event_source.stop()
+
+    # Load the head image
+    head_img = mpimg.imread('head.png')
+
     # Scale factor for movement amplification
-    scale_factor = 5  # Increase this to amplify head movement
-    
+    scale_factor = 5
+    image_size_factor = 2  # Increase this factor to scale the image size
+
     def update(frame):
         ax.clear()
         
-        # Dynamic axis limits (based on normalized and amplified data ranges)
-        ax.set_xlim(-5, 5)
-        ax.set_ylim(-5, 5)
+        limits = 10
+        ax.set_xlim(-limits, limits)
+        ax.set_ylim(-limits, limits)
         ax.grid(False)
 
-        # Initialize tilt_x and tilt_y as 0 in case one is not defined
         tilt_x, tilt_y = 0, 0
         
         if activity == 'nod':
-            tilt_y = imu_left['ay'].iloc[frame] * scale_factor  # Amplified Y-axis movement
-            rotation = imu_left['gy'].iloc[frame] * 0.01  # Rotation around the Y-axis
+            tilt_y = imu_left['ay'].iloc[frame] * scale_factor
+            rotation = imu_left['gy'].iloc[frame] * 0.01
         elif activity == 'shake':
-            tilt_x = imu_left['ax'].iloc[frame] * scale_factor  # Amplified X-axis movement
-            rotation = imu_left['gx'].iloc[frame] * 0.01  # Rotation around the X-axis
+            tilt_x = imu_left['ax'].iloc[frame] * scale_factor
+            rotation = imu_left['gx'].iloc[frame] * 0.01
         else:
             tilt_x = imu_left['ax'].iloc[frame] * scale_factor
             tilt_y = imu_left['ay'].iloc[frame] * scale_factor
             rotation = imu_left['gz'].iloc[frame] * 0.01
         
-        # Rotate and display the head image
-        img_extent = [tilt_x - 1, tilt_x + 1, tilt_y - 1, tilt_y + 1]  # Adjust image position
+        # Adjust the image extent to increase size
+        img_extent = [
+            tilt_x - image_size_factor, tilt_x + image_size_factor,
+            tilt_y - image_size_factor, tilt_y + image_size_factor
+        ]
+        
+        # Display the head image with updated size
         ax.imshow(head_img, extent=img_extent, aspect='auto', origin='upper')
         canvas.draw()
     
-    ani = FuncAnimation(fig, update, frames=len(imu_left), interval=200)  # Animation with 200ms interval
+    # Start new animation
+    ani = FuncAnimation(fig, update, frames=len(imu_left), interval=200)
     canvas.draw()
+
+
+# Stop animation function
+def stop_animation():
+    global ani
+    if ani:
+        ani.event_source.stop()
+
+# Plot function (for static plotting)
+def plot_imu_data(imu_left, imu_right, activity, user_id):
+    fig, axs = plt.subplots(2, 1, figsize=(10, 8))
+
+    axs[0].plot(imu_left['timestamp'], imu_left['ax'], label='Accel X (Left)', color='r')
+    axs[0].plot(imu_left['timestamp'], imu_left['ay'], label='Accel Y (Left)', color='g')
+    axs[0].plot(imu_left['timestamp'], imu_left['az'], label='Accel Z (Left)', color='b')
+    axs[0].set_title(f'User {user_id} - {activity} IMU (Left)')
+    axs[0].legend()
+
+    axs[1].plot(imu_right['timestamp'], imu_right['ax'], label='Accel X (Right)', color='r')
+    axs[1].plot(imu_right['timestamp'], imu_right['ay'], label='Accel Y (Right)', color='g')
+    axs[1].plot(imu_right['timestamp'], imu_right['az'], label='Accel Z (Right)', color='b')
+    axs[1].set_title(f'User {user_id} - {activity} IMU (Right)')
+    axs[1].legend()
+
+    plt.tight_layout()
+    plt.show()
 
 # GUI using CustomTkinter
 def create_gui():
@@ -117,9 +184,9 @@ def create_gui():
     # Create the main window
     root = ctk.CTk()
     root.title("IMU Data Visualization")
-    root.geometry("800x600")  # Set window size
+    root.geometry("800x600")
 
-    # Create a frame for options on the left side
+    # Create a frame for options
     options_frame = ctk.CTkFrame(root)
     options_frame.pack(side=ctk.LEFT, padx=10, pady=10)
 
@@ -135,13 +202,17 @@ def create_gui():
     activity_dropdown = ctk.CTkComboBox(options_frame, values=VALID_ACTIVITIES, variable=activity_var)
     activity_dropdown.pack()
 
+   
     # Radio buttons for Plot or Animate
     plot_or_animate_var = ctk.StringVar(value="Animate")
     ctk.CTkRadioButton(options_frame, text="Animate", variable=plot_or_animate_var, value="Animate").pack()
     ctk.CTkRadioButton(options_frame, text="Plot", variable=plot_or_animate_var, value="Plot").pack()
 
     # Run button
-    ctk.CTkButton(options_frame, text="Run", command=on_run).pack()
+    ctk.CTkButton(options_frame, text="Run", command=on_run).pack(pady=5)
+
+    # Stop button to stop animation
+    ctk.CTkButton(options_frame, text="Stop Animation", command=stop_animation).pack(pady=5)
 
     # Create a frame for the plot/animation on the right side
     plot_frame = ctk.CTkFrame(root)
