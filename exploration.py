@@ -3,6 +3,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import numpy as np
+import matplotlib.image as mpimg
+import seaborn as sns
+sns.set_theme()
+sns.set(style="whitegrid")  # Default setting with grid
+sns.set(style="white")      # Remove the grid
+
 
 # Valid activity names
 VALID_ACTIVITIES = ['brow-lowerer', 'brow-raiser', 'chewing', 'chin-raiser', 'eyes-lr', 'eyes-ud', 
@@ -33,69 +39,51 @@ def load_imu_data(user_id, activity):
         print(f"An error occurred: {e}")
         return None, None
 
-def animate_imu(imu_left):
+def animate_imu(imu_left, activity):
     fig, ax = plt.subplots()
-    head_circle = plt.Circle((0, 0), 1, fill=False, edgecolor='b')
-    ax.add_patch(head_circle)
-    ax.set_xlim(-2, 2)
-    ax.set_ylim(-2, 2)
+    
+    # Load the head image
+    head_img = mpimg.imread('head.png')  # Ensure that 'head.png' is in the same directory
 
+    # Standardize/Normalize the accelerometer data
+    imu_left['ax'] = (imu_left['ax'] - imu_left['ax'].mean()) / imu_left['ax'].std()
+    imu_left['ay'] = (imu_left['ay'] - imu_left['ay'].mean()) / imu_left['ay'].std()
+    imu_left['gz'] = (imu_left['gz'] - imu_left['gz'].mean()) / imu_left['gz'].std()
+    
+    # Scale factor for movement amplification
+    scale_factor = 5  # Increase this to amplify head movement
+    
     def update(frame):
         ax.clear()
-        ax.set_xlim(-2, 2)
-        ax.set_ylim(-2, 2)
         
-        # Tilt effect based on accelerometer
-        tilt_x = imu_left['ax'].iloc[frame] / 1000  # Adjust scaling for better visualization
-        tilt_y = imu_left['ay'].iloc[frame] / 1000
+        # Dynamic axis limits (based on normalized and amplified data ranges)
+        ax.set_xlim(-5, 5)
+        ax.set_ylim(-5, 5)
+        ax.grid(False)
+        # Initialize tilt_x and tilt_y as 0 in case one is not defined
+        tilt_x, tilt_y = 0, 0
         
-        # Rotate effect based on gyroscope (integrate angular velocity over time)
-        rotation = imu_left['gz'].iloc[frame] * 0.01  # Gyroscope Z-axis for rotation
+        if activity == 'nod':
+            tilt_y = imu_left['ay'].iloc[frame] * scale_factor  # Amplified Y-axis movement
+            rotation = imu_left['gy'].iloc[frame] * 0.01  # Rotation around the Y-axis
+        elif activity == 'shake':
+            tilt_x = imu_left['ax'].iloc[frame] * scale_factor  # Amplified X-axis movement
+            rotation = imu_left['gx'].iloc[frame] * 0.01  # Rotation around the X-axis
+        else:
+            tilt_x = imu_left['ax'].iloc[frame] * scale_factor
+            tilt_y = imu_left['ay'].iloc[frame] * scale_factor
+            rotation = imu_left['gz'].iloc[frame] * 0.01
         
-        # Create rotated circle (simulating head tilt + rotation)
-        t = np.linspace(0, 2 * np.pi, 100)
-        x = np.cos(t + rotation)
-        y = np.sin(t + rotation)
-        
-        ax.plot(x + tilt_x, y + tilt_y, 'b')
-        return head_circle,
+        # Rotate and display the head image
+        img_extent = [tilt_x - 1, tilt_x + 1, tilt_y - 1, tilt_y + 1]  # Adjust image position
+        ax.imshow(head_img, extent=img_extent, aspect='auto', origin='upper')
+        return ax,
 
-    ani = FuncAnimation(fig, update, frames=len(imu_left), interval=500)  # Slower animation (500ms interval)
-    plt.show()
-
-def plot_imu_data(imu_left, imu_right, activity, user_id):
-    # Plot the accelerometer and gyroscope data (X, Y, Z) for both left and right IMU
-    plt.figure(figsize=(12, 10))
+    ani = FuncAnimation(fig, update, frames=len(imu_left), interval=250)  # Slower animation
     
-    # Left IMU
-    plt.subplot(2, 1, 1)
-    plt.plot(imu_left['timestamp'], imu_left['ax'], label='Accel X (Left)', color='r')
-    plt.plot(imu_left['timestamp'], imu_left['ay'], label='Accel Y (Left)', color='g')
-    plt.plot(imu_left['timestamp'], imu_left['az'], label='Accel Z (Left)', color='b')
-    plt.plot(imu_left['timestamp'], imu_left['gx'], label='Gyro X (Left)', linestyle='--', color='r')
-    plt.plot(imu_left['timestamp'], imu_left['gy'], label='Gyro Y (Left)', linestyle='--', color='g')
-    plt.plot(imu_left['timestamp'], imu_left['gz'], label='Gyro Z (Left)', linestyle='--', color='b')
-    plt.title(f'User {user_id} - {activity} IMU (Left)')
-    plt.xlabel('Time')
-    plt.ylabel('Acceleration (g) / Gyroscope (dps)')
-    plt.legend()
-
-    # Right IMU
-    plt.subplot(2, 1, 2)
-    plt.plot(imu_right['timestamp'], imu_right['ax'], label='Accel X (Right)', color='r')
-    plt.plot(imu_right['timestamp'], imu_right['ay'], label='Accel Y (Right)', color='g')
-    plt.plot(imu_right['timestamp'], imu_right['az'], label='Accel Z (Right)', color='b')
-    plt.plot(imu_right['timestamp'], imu_right['gx'], label='Gyro X (Right)', linestyle='--', color='r')
-    plt.plot(imu_right['timestamp'], imu_right['gy'], label='Gyro Y (Right)', linestyle='--', color='g')
-    plt.plot(imu_right['timestamp'], imu_right['gz'], label='Gyro Z (Right)', linestyle='--', color='b')
-    plt.title(f'User {user_id} - {activity} IMU (Right)')
-    plt.xlabel('Time')
-    plt.ylabel('Acceleration (g) / Gyroscope (dps)')
-    plt.legend()
-
-    # Show the plot
-    plt.tight_layout()
     plt.show()
+    
+
 
 def main():
     # User input: user ID and activity
@@ -118,7 +106,7 @@ def main():
     action = input("Do you want to (P)lot or (A)nimate the data? (P/A): ").lower()
     
     if action == 'a':
-        animate_imu(imu_left)
+        animate_imu(imu_left, activity)
     elif action == 'p':
         plot_imu_data(imu_left, imu_right, activity, user_id)
     else:
