@@ -19,3 +19,6 @@ Run the following command to start the GUI:
 ```
 python main.py
 ```
+
+![Screenshot of App](https://github.com/magnumical/earbudIMU/blob/main/img/src.png)
+
