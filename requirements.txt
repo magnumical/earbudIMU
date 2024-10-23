@@ -1,0 +1,5 @@
+customtkinter==5.2.2
+matplotlib==3.7.2
+numpy==2.1.2
+pandas==2.2.3
+seaborn==0.13.2
