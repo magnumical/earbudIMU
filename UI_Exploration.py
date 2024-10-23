@@ -90,7 +90,7 @@ def animate_imu(imu_left, activity, canvas, fig, ax):
     head_img = mpimg.imread('head.png')
 
     # Scale factor for movement amplification
-    scale_factor = 5
+    scale_factor = 4
     image_size_factor = 2  # Increase this factor to scale the image size
 
     def update(frame):
